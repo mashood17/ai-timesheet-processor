@@ -1,0 +1,10 @@
+backend/venv/
+backend/storage/
+backend/.env
+backend/__pycache__/
+**/__pycache__/
+frontend/node_modules/
+frontend/dist/
+frontend/.env
+.vscode/
+*.pyc
