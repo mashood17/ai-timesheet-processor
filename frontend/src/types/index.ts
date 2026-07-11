@@ -92,3 +92,11 @@ export interface ConfirmResponse {
   unmatched_count: number;
   manually_corrected_count: number;
 }
+
+export interface ProcessResponse {
+  session_id: string;
+  results: EmployeeProcessResult[];
+  unmatched: UnmatchedEntry[];
+  duplicates: DuplicateEntry[];
+  quality_warnings: string[];
+}

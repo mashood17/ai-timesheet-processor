@@ -97,6 +97,7 @@ export function DashboardPage() {
           results: result.results,
           unmatched: result.unmatched,
           duplicates: result.duplicates,
+          quality_warnings: result.quality_warnings,
         },
       });
     } catch (err) {

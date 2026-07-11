@@ -27,6 +27,8 @@ from app.services.pdf_page_template_service import PageTemplatePDFService
 from app.services.pdf_service import PDFService
 from app.services.session_service import SessionService
 from app.services.storage_service import StorageService
+from app.models.process_models import AcceptMatchesRequest, AcceptMatchesResponse, MatchAcceptance
+from app.services.extraction_validation_service import flag_suspicious_patterns
 
 router = APIRouter(prefix="/api/process", tags=["process"], dependencies=[Depends(get_current_username)])
 
@@ -228,6 +230,9 @@ async def process_timesheet(
         for iqama, count in duplicate_counts.items()
     ]
 
+    quality_warnings = flag_suspicious_patterns(results)
+    
+    
     session_service = SessionService(storage)
     session_id = session_service.create(
         excel_file_id=payload.excel_file_id,
@@ -242,18 +247,23 @@ async def process_timesheet(
         results=results,
         unmatched=unmatched,
         duplicates=duplicates,
+        quality_warnings=quality_warnings,
     )
     
-@router.post("/accept-match", response_model=AcceptMatchResponse)
-async def accept_possible_match(
-    payload: AcceptMatchRequest,
+@router.post("/accept-matches", response_model=AcceptMatchesResponse)
+async def accept_possible_matches(
+    payload: AcceptMatchesRequest,
     storage: StorageService = Depends(get_storage_service),
-) -> AcceptMatchResponse:
+) -> AcceptMatchesResponse:
     """
-    Lets the user manually confirm a suggested near-miss IQAMA match
-    (Section-required human-in-the-loop step — this endpoint NEVER
-    matches anything on its own; it only applies a match the user has
-    explicitly reviewed and accepted in the UI).
+    Applies one or more user-confirmed near-miss match corrections in a
+    single atomic pass. Handles any number of selections at once — this
+    is the sole accept endpoint; a single acceptance is just a one-item
+    batch, so there's one code path to reason about instead of two.
+
+    Per Section requirements: this NEVER matches anything on its own —
+    every correction here is a match the user explicitly reviewed and
+    selected in the UI beforehand.
     """
     session_service = SessionService(storage)
     try:
@@ -275,33 +285,35 @@ async def accept_possible_match(
         data_start_row=mapping["data_start_row"],
     )
 
-    normalized_accepted = normalize_id(payload.accepted_iqama)
-    excel_row = iqama_index.get(normalized_accepted)
-    if excel_row is None:
-        raise HTTPException(
-            status.HTTP_400_BAD_REQUEST,
-            "The accepted IQAMA was not found in the master Excel — it may have "
-            "changed since this session started. Please re-run mapping detection.",
-        )
-
     results = [EmployeeProcessResult(**r) for r in session_data["results"]]
-    target = next(
-        (r for r in results if r.iqama_or_passport == payload.unmatched_iqama_or_passport and not r.matched),
-        None,
-    )
-    if target is None:
-        raise HTTPException(
-            status.HTTP_400_BAD_REQUEST,
-            "Could not find the specified unmatched entry in this session — "
-            "it may have already been resolved.",
-        )
+    accepted_count = 0
 
-    # Apply the user-confirmed correction: update the IQAMA to the accepted
-    # value and mark this employee as matched. This never happens
-    # automatically — only in direct response to explicit user action.
-    target.iqama_or_passport = payload.accepted_iqama
-    target.matched = True
-    target.excel_row = excel_row
+    for acceptance in payload.matches:
+        normalized_accepted = normalize_id(acceptance.accepted_iqama)
+        excel_row = iqama_index.get(normalized_accepted)
+        if excel_row is None:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                f"Accepted IQAMA '{acceptance.accepted_iqama}' was not found in the "
+                "master Excel — it may have changed since this session started.",
+            )
+
+        target = next(
+            (r for r in results
+             if r.iqama_or_passport == acceptance.unmatched_iqama_or_passport and not r.matched),
+            None,
+        )
+        if target is None:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                f"Could not find unmatched entry '{acceptance.unmatched_iqama_or_passport}' — "
+                "it may have already been resolved.",
+            )
+
+        target.iqama_or_passport = acceptance.accepted_iqama
+        target.matched = True
+        target.excel_row = excel_row
+        accepted_count += 1
 
     storage.update_session_data(
         payload.session_id,
@@ -339,4 +351,6 @@ async def accept_possible_match(
         for iqama, count in duplicate_counts.items()
     ]
 
-    return AcceptMatchResponse(results=results, unmatched=unmatched, duplicates=duplicates)
+    return AcceptMatchesResponse(
+        results=results, unmatched=unmatched, duplicates=duplicates, accepted_count=accepted_count,
+    )

@@ -5,7 +5,7 @@ import { confirmAndGenerate } from "@/api/endpoints";
 import { ElapsedProgress } from "@/components/ElapsedProgress";
 import { ReportTable } from "@/components/ReportTable";
 import { ReviewGrid } from "@/components/ReviewGrid";
-import { acceptPossibleMatch } from "@/api/endpoints";
+import { acceptPossibleMatches } from "@/api/endpoints";
 import type { CorrectedCell, DuplicateEntry, EmployeeProcessResult, UnmatchedEntry } from "@/types";
 
 interface LocationState {
@@ -13,6 +13,7 @@ interface LocationState {
   results: EmployeeProcessResult[];
   unmatched: UnmatchedEntry[];
   duplicates: DuplicateEntry[];
+  quality_warnings: string[];
 }
 
 export function ReviewPage() {
@@ -27,11 +28,13 @@ export function ReviewPage() {
   const [error, setError] = useState<string | null>(null);
 
   const flaggedCount = useMemo(() => {
-    if (!state) return 0;
-    return state.results
+    return results
       .filter((r) => r.matched)
-      .reduce((sum, r) => sum + r.day_cells.filter((c) => c.needs_review).length, 0);
-  }, [state]);
+      .reduce(
+        (sum, r) => sum + r.day_cells.filter((c) => c.needs_review).length,
+        0
+      );
+  }, [results]);
 
   if (!state) {
     return (
@@ -59,14 +62,16 @@ export function ReviewPage() {
     });
   }
 
-  async function handleAcceptMatch(unmatchedIqama: string, acceptedIqama: string) {
+  async function handleAcceptMatches(
+    matches: { unmatched_iqama_or_passport: string; accepted_iqama: string }[]
+  ) {
     if (!state) return;
     try {
-      const response = await acceptPossibleMatch(state.sessionId, unmatchedIqama, acceptedIqama);
+      const response = await acceptPossibleMatches(state.sessionId, matches);
       setResults(response.results);
       setUnmatched(response.unmatched);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Failed to accept the match.");
+      setError(err instanceof ApiError ? err.message : "Failed to accept the selected matches.");
     }
   }
 
@@ -105,6 +110,18 @@ export function ReviewPage() {
               "No low-confidence cells were found. You can generate the file directly."
             )}
           </p>
+          {state.quality_warnings && state.quality_warnings.length > 0 && (
+          <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 mt-4 max-w-6xl mx-auto">
+            <p className="text-xs font-semibold text-red-800 mb-1.5">
+              ⚠ Suspicious extraction patterns detected — please verify these rows carefully:
+            </p>
+            <ul className="text-xs text-red-700 space-y-1 list-disc list-inside">
+              {state.quality_warnings.map((warning, i) => (
+                <li key={i}>{warning}</li>
+              ))}
+            </ul>
+          </div>
+        )}
         </div>
       </header>
 
@@ -114,7 +131,7 @@ export function ReviewPage() {
         <ReportTable
           unmatched={unmatched}
           duplicates={state.duplicates}
-          onAcceptMatch={handleAcceptMatch}
+          onAcceptMatches={handleAcceptMatches}
         />
 
         {error && (

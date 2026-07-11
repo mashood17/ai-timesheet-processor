@@ -89,21 +89,17 @@ export async function downloadReport(sessionId: string): Promise<Blob> {
   return requestBlob(`/api/download/report/${sessionId}`);
 }
 
-export async function acceptPossibleMatch(
+export async function acceptPossibleMatches(
   sessionId: string,
-  unmatchedIqama: string,
-  acceptedIqama: string
+  matches: { unmatched_iqama_or_passport: string; accepted_iqama: string }[]
 ): Promise<{
   results: EmployeeProcessResult[];
   unmatched: UnmatchedEntry[];
   duplicates: DuplicateEntry[];
+  accepted_count: number;
 }> {
-  return request("/api/process/accept-match", {
+  return request("/api/process/accept-matches", {
     method: "POST",
-    body: JSON.stringify({
-      session_id: sessionId,
-      unmatched_iqama_or_passport: unmatchedIqama,
-      accepted_iqama: acceptedIqama,
-    }),
+    body: JSON.stringify({ session_id: sessionId, matches }),
   });
 }

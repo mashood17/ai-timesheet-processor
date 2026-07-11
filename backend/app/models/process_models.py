@@ -55,6 +55,7 @@ class ProcessResponse(BaseModel):
     results: list[EmployeeProcessResult]
     unmatched: list[UnmatchedEntry]
     duplicates: list[DuplicateEntry]
+    quality_warnings: list[str] = []
 
 
 class CorrectedCell(BaseModel):
@@ -84,3 +85,19 @@ class AcceptMatchResponse(BaseModel):
     results: list[EmployeeProcessResult]
     unmatched: list[UnmatchedEntry]
     duplicates: list[DuplicateEntry]
+    
+class MatchAcceptance(BaseModel):
+    unmatched_iqama_or_passport: str
+    accepted_iqama: str
+
+
+class AcceptMatchesRequest(BaseModel):
+    session_id: str
+    matches: list[MatchAcceptance]
+
+
+class AcceptMatchesResponse(BaseModel):
+    results: list[EmployeeProcessResult]
+    unmatched: list[UnmatchedEntry]
+    duplicates: list[DuplicateEntry]
+    accepted_count: int
