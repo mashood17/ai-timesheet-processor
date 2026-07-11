@@ -40,7 +40,8 @@ class EmployeeProcessResult(BaseModel):
 class UnmatchedEntry(BaseModel):
     iqama_or_passport: str | None
     employee_name: str | None
-    reason: str                 # e.g. "No matching IQAMA found in master Excel"
+    reason: str
+    possible_match: str | None = None  # suggested close IQAMA for manual review only               # e.g. "No matching IQAMA found in master Excel"
 
 
 class DuplicateEntry(BaseModel):
@@ -72,3 +73,14 @@ class ConfirmResponse(BaseModel):
     matched_count: int
     unmatched_count: int
     manually_corrected_count: int
+    
+class AcceptMatchRequest(BaseModel):
+    session_id: str
+    unmatched_iqama_or_passport: str  # the misread value shown in the unmatched list
+    accepted_iqama: str               # the corrected Excel IQAMA the user confirmed
+
+
+class AcceptMatchResponse(BaseModel):
+    results: list[EmployeeProcessResult]
+    unmatched: list[UnmatchedEntry]
+    duplicates: list[DuplicateEntry]

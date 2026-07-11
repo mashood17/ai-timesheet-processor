@@ -1,15 +1,18 @@
 """
 Section 7: POST /api/process — the core pipeline (Section 5, steps 7-12).
 
-PERFORMANCE FIX: the PDF is now opened once per request (via
-PDFService.open_document) and reused across every cell crop, instead of
-reopening the file for every single day-cell. For a 900-row, ~30-day
-timesheet this eliminates roughly 27,000 redundant file opens.
+UPDATE: dispatches between the ruled-table extraction (pdf_service.py) and
+the scanned page-per-employee extraction (pdf_page_template_service.py)
+based on PDFService.detect_format(). The page-per-employee template
+performs OCR inline during extraction (PDFCell.precomputed_ocr), so the
+cell-processing loop below checks for that first before falling back to
+the ruled-table's text-layer-then-crop-and-OCR path.
 """
 from fastapi import APIRouter, Depends, HTTPException, status
-
+from app.services.vision_extraction_service import VisionExtractionService
 from app.auth.dependencies import get_current_username
 from app.config import Settings, get_settings
+from app.models.process_models import AcceptMatchRequest, AcceptMatchResponse
 from app.models.process_models import (
     DayCellResult,
     DuplicateEntry,
@@ -20,6 +23,7 @@ from app.models.process_models import (
 )
 from app.services.matching_service import MatchingService, normalize_id
 from app.services.ocr.factory import get_ocr_engine
+from app.services.pdf_page_template_service import PageTemplatePDFService
 from app.services.pdf_service import PDFService
 from app.services.session_service import SessionService
 from app.services.storage_service import StorageService
@@ -30,6 +34,10 @@ REVIEW_THRESHOLD = 0.6
 ALLOWED_LEGEND_CODES = {
     "A", "AB", "AL", "CO", "DA", "HL", "ML", "NJ", "PA", "PH",
     "PL", "R", "RL", "SL", "SP", "T", "TO", "UL", "WD", "WE", "WI",
+    # Sinopec-format legend (Note 3 on that template): distinct codes from
+    # the SAC-factory legend above. Both sets are accepted so either PDF
+    # format can be processed without reconfiguring anything.
+    "S", "P", "V", "J", "M", "B", "C",
 }
 ALLOWED_NUMBERS = [str(n) for n in range(0, 25)]
 ALLOWED_VALUES = ALLOWED_NUMBERS + sorted(ALLOWED_LEGEND_CODES)
@@ -55,8 +63,18 @@ async def process_timesheet(
     matching_service = MatchingService()
     ocr_engine = get_ocr_engine(settings)
 
+    pdf_format = pdf_service.detect_format(pdf_path)
+
+    vision_service = VisionExtractionService(settings) if settings.vision_api_key else None
+
     try:
-        pdf_rows = pdf_service.extract_employee_rows(pdf_path)
+        if pdf_format == "scanned_page_per_employee":
+            pdf_rows, extraction_failures = PageTemplatePDFService().extract_employee_rows(
+                pdf_path, ocr_engine, ALLOWED_VALUES, vision_service=vision_service
+            )
+        else:
+            pdf_rows = pdf_service.extract_employee_rows(pdf_path)
+            extraction_failures = []
     except Exception as exc:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST, f"Failed to read employee rows from the PDF: {exc}"
@@ -79,8 +97,10 @@ async def process_timesheet(
     unmatched: list[UnmatchedEntry] = []
     seen_duplicate_names: dict[str, list[str]] = {}
 
-    # PERFORMANCE FIX: open the PDF once for the whole request.
-    fitz_doc = pdf_service.open_document(pdf_path)
+    fitz_doc = None
+    if pdf_format != "scanned_page_per_employee":
+        fitz_doc = pdf_service.open_document(pdf_path)
+
     try:
         for row in pdf_rows:
             normalized_iqama = normalize_id(row.iqama_or_passport)
@@ -88,11 +108,22 @@ async def process_timesheet(
             matched = excel_row is not None
 
             if not matched:
+                reason = (
+                    "IQAMA number could not be read with sufficient confidence from the PDF"
+                    if not row.iqama_or_passport
+                    else "No matching IQAMA found in master Excel"
+                )
+                possible_match = None
+                if row.iqama_or_passport:
+                    possible_match = matching_service.find_possible_match(
+                    normalized_iqama, iqama_index
+                )
                 unmatched.append(
                     UnmatchedEntry(
                         iqama_or_passport=row.iqama_or_passport,
                         employee_name=row.employee_name,
-                        reason="No matching IQAMA found in master Excel",
+                        reason=reason,
+                        possible_match=possible_match,
                     )
                 )
 
@@ -105,6 +136,21 @@ async def process_timesheet(
             for iso_date in sorted(mapped_dates):
                 pdf_cell = row.day_cells.get(iso_date)
                 if pdf_cell is None:
+                    continue
+
+                # Page-per-employee template already ran OCR during extraction.
+                if pdf_cell.precomputed_ocr is not None:
+                    ocr_result = pdf_cell.precomputed_ocr
+                    day_cell_results.append(
+                        DayCellResult(
+                            iso_date=iso_date,
+                            value=ocr_result.raw_value,
+                            confidence=ocr_result.confidence,
+                            source="ocr",
+                            needs_review=ocr_result.confidence < REVIEW_THRESHOLD,
+                            is_legend_code=ocr_result.is_legend_code,
+                        )
+                    )
                     continue
 
                 if pdf_cell.text_layer_value and pdf_cell.text_layer_value.strip().upper() in ALLOWED_VALUES:
@@ -160,7 +206,18 @@ async def process_timesheet(
                 )
             )
     finally:
-        fitz_doc.close()
+        if fitz_doc is not None:
+            fitz_doc.close()
+
+    for failure in extraction_failures:
+        unmatched.append(
+            UnmatchedEntry(
+                iqama_or_passport=None,
+                employee_name=None,
+                reason=f"Page {failure['page_number']} could not be processed: {failure['reason']}",
+                possible_match=None,
+            )
+        )
 
     duplicates = [
         DuplicateEntry(
@@ -186,3 +243,100 @@ async def process_timesheet(
         unmatched=unmatched,
         duplicates=duplicates,
     )
+    
+@router.post("/accept-match", response_model=AcceptMatchResponse)
+async def accept_possible_match(
+    payload: AcceptMatchRequest,
+    storage: StorageService = Depends(get_storage_service),
+) -> AcceptMatchResponse:
+    """
+    Lets the user manually confirm a suggested near-miss IQAMA match
+    (Section-required human-in-the-loop step — this endpoint NEVER
+    matches anything on its own; it only applies a match the user has
+    explicitly reviewed and accepted in the UI).
+    """
+    session_service = SessionService(storage)
+    try:
+        session_data = session_service.get(payload.session_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+
+    try:
+        excel_path = storage.get_upload_path(session_data["excel_file_id"], ".xlsx")
+    except FileNotFoundError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+
+    mapping = session_data["mapping"]
+    matching_service = MatchingService()
+    iqama_index = matching_service.build_iqama_index(
+        excel_path=excel_path,
+        sheet_name=session_data["sheet_name"],
+        iqama_column=mapping["iqama_column"],
+        data_start_row=mapping["data_start_row"],
+    )
+
+    normalized_accepted = normalize_id(payload.accepted_iqama)
+    excel_row = iqama_index.get(normalized_accepted)
+    if excel_row is None:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "The accepted IQAMA was not found in the master Excel — it may have "
+            "changed since this session started. Please re-run mapping detection.",
+        )
+
+    results = [EmployeeProcessResult(**r) for r in session_data["results"]]
+    target = next(
+        (r for r in results if r.iqama_or_passport == payload.unmatched_iqama_or_passport and not r.matched),
+        None,
+    )
+    if target is None:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "Could not find the specified unmatched entry in this session — "
+            "it may have already been resolved.",
+        )
+
+    # Apply the user-confirmed correction: update the IQAMA to the accepted
+    # value and mark this employee as matched. This never happens
+    # automatically — only in direct response to explicit user action.
+    target.iqama_or_passport = payload.accepted_iqama
+    target.matched = True
+    target.excel_row = excel_row
+
+    storage.update_session_data(
+        payload.session_id,
+        {**session_data, "results": [r.model_dump() for r in results]},
+    )
+
+    duplicate_counts = matching_service.find_duplicate_pdf_iqamas(
+        [r.iqama_or_passport for r in results]
+    )
+    unmatched = [
+        UnmatchedEntry(
+            iqama_or_passport=r.iqama_or_passport,
+            employee_name=r.employee_name,
+            reason=(
+                "IQAMA number could not be read with sufficient confidence from the PDF"
+                if not r.iqama_or_passport
+                else "No matching IQAMA found in master Excel"
+            ),
+            possible_match=matching_service.find_possible_match(
+                normalize_id(r.iqama_or_passport), iqama_index
+            ) if r.iqama_or_passport else None,
+        )
+        for r in results
+        if not r.matched
+    ]
+    duplicates = [
+        DuplicateEntry(
+            iqama_or_passport=iqama,
+            occurrences=count,
+            employee_names=[
+                r.employee_name for r in results
+                if normalize_id(r.iqama_or_passport) == iqama and r.employee_name
+            ],
+        )
+        for iqama, count in duplicate_counts.items()
+    ]
+
+    return AcceptMatchResponse(results=results, unmatched=unmatched, duplicates=duplicates)

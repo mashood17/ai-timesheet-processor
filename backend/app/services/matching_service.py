@@ -3,10 +3,6 @@ Section 5, steps 11-12 + Section 4: matches PDF employee rows against the
 master Excel's IQAMA column, and separately flags duplicate IQAMAs found
 within the PDF itself (a data-quality problem in the source document,
 independent of matching).
-
-IQAMA/Passport numbers are compared as normalized strings (trimmed,
-non-digit characters stripped for numeric IQAMAs) so that "2186790602",
-"2186790602 ", and an Excel cell stored as the int 2186790602 all match.
 """
 import re
 from collections import Counter
@@ -17,13 +13,21 @@ from openpyxl.utils import column_index_from_string
 
 
 def normalize_id(value) -> str:
+    """
+    Normalizes an IQAMA/passport value for comparison. Strips whitespace
+    (including invisible/non-breaking unicode whitespace), keeps only
+    alphanumerics, uppercases for case-insensitive comparison.
+
+    Deliberately does NOT attempt fuzzy correction of common OCR confusions
+    — per explicit requirement, this must never create a false match. See
+    MatchingService.find_possible_match for the safe, human-confirmed
+    alternative.
+    """
     if value is None:
         return ""
     text = str(value).strip()
-    # Keep alphanumerics only (covers passport numbers, which can be alphanumeric,
-    # as well as pure-numeric IQAMA numbers) — but don't strip letters, since a
-    # passport like "AB1234567" is a legitimate identifier, not noise.
-    return re.sub(r"\s+", "", text).upper()
+    text = re.sub(r"\s+", "", text)
+    return re.sub(r"[^0-9A-Za-z]", "", text).upper()
 
 
 class MatchingService:
@@ -34,12 +38,6 @@ class MatchingService:
         iqama_column: str,
         data_start_row: int,
     ) -> dict[str, int]:
-        """
-        Returns {normalized_iqama: excel_row_number}. If the same IQAMA appears
-        twice in the Excel itself, the first occurrence wins and a warning
-        should be surfaced by the caller — this is a master-data problem, not
-        something to silently resolve here.
-        """
         workbook = openpyxl.load_workbook(excel_path, data_only=False, read_only=True)
         sheet = workbook[sheet_name]
         col_idx = column_index_from_string(iqama_column)
@@ -55,7 +53,61 @@ class MatchingService:
         return index
 
     def find_duplicate_pdf_iqamas(self, pdf_iqamas: list[str]) -> dict[str, int]:
-        """Returns {normalized_iqama: occurrence_count} for any appearing more than once."""
         normalized = [normalize_id(v) for v in pdf_iqamas if v]
         counts = Counter(normalized)
         return {iqama: count for iqama, count in counts.items() if count > 1}
+
+    def find_possible_match(
+        self, iqama: str, index: dict[str, int], max_distance: int = 2, min_length: int = 6
+    ) -> str | None:
+        """
+        BUGFIX: this was previously a stray module-level function, called
+        incorrectly as an instance method everywhere it was used — an
+        AttributeError that crashed both /api/process and /api/process/
+        accept-match with a 500. Now a proper method on this class.
+
+        Suggests a close-but-not-exact IQAMA match for human review —
+        NEVER auto-applied, NEVER used for matching itself. Only returns a
+        suggestion when there is exactly ONE unambiguous close candidate;
+        if two candidates are equally close, returns None rather than
+        guessing between them. Pure generic edit-distance comparison — no
+        assumptions about which specific digits get confused.
+        """
+        if not iqama or len(iqama) < min_length:
+            return None
+
+        best_candidate: str | None = None
+        best_distance = max_distance + 1
+        second_best_distance = max_distance + 1
+
+        for candidate in index:
+            if abs(len(candidate) - len(iqama)) > 1:
+                continue
+            distance = self._levenshtein(iqama, candidate)
+            if distance < best_distance:
+                second_best_distance = best_distance
+                best_distance = distance
+                best_candidate = candidate
+            elif distance < second_best_distance:
+                second_best_distance = distance
+
+        if best_candidate and best_distance <= max_distance and best_distance < second_best_distance:
+            return best_candidate
+        return None
+
+    @staticmethod
+    def _levenshtein(a: str, b: str) -> int:
+        if len(a) < len(b):
+            a, b = b, a
+        previous_row = list(range(len(b) + 1))
+        for i, char_a in enumerate(a, start=1):
+            current_row = [i]
+            for j, char_b in enumerate(b, start=1):
+                cost = 0 if char_a == char_b else 1
+                current_row.append(min(
+                    previous_row[j] + 1,
+                    current_row[j - 1] + 1,
+                    previous_row[j - 1] + cost,
+                ))
+            previous_row = current_row
+        return previous_row[-1]

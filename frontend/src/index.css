@@ -2,6 +2,39 @@
 @tailwind components;
 @tailwind utilities;
 
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
 body {
   @apply bg-ink-50 text-ink-900 antialiased;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+}
+
+::selection {
+  @apply bg-accent-100 text-accent-700;
+}
+
+/* Consistent, subtle focus ring across all interactive elements */
+:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(91, 95, 239, 0.18);
+  border-radius: 6px;
+}
+
+/* Slim, unobtrusive scrollbars for the review grid and any overflow areas */
+::-webkit-scrollbar {
+  height: 8px;
+  width: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  @apply bg-ink-200;
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-ink-300;
 }

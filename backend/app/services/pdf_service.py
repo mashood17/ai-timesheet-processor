@@ -80,6 +80,12 @@ class PDFCell:
     page_number: int
     bbox: tuple[float, float, float, float]
     text_layer_value: str | None
+    # Populated only by PageTemplatePDFService (scanned/photographed,
+    # per-employee-per-page formats with no vector table lines to defer
+    # cropping against). When set, process_routes.py uses this value
+    # directly instead of the text-layer-then-crop-and-OCR path used for
+    # the ruled-table format.
+    precomputed_ocr: object | None = None
 
 
 @dataclass
@@ -121,6 +127,24 @@ class PDFService:
     def get_page_count(self, pdf_path: Path) -> int:
         with pdfplumber.open(pdf_path) as pdf:
             return len(pdf.pages)
+        
+    def detect_format(self, pdf_path: Path) -> str:
+        """
+        Returns 'ruled_table' (row-per-employee, e.g. the SAC factory
+        format — has either a text layer or vector table lines) or
+        'scanned_page_per_employee' (e.g. the Sinopec supplier format —
+        pure photographed/scanned images, no text layer, no vector lines).
+        This determines which extraction path process_routes.py and
+        mapping_routes.py should use for a given upload.
+        """
+        with pdfplumber.open(pdf_path) as pdf:
+            if not pdf.pages:
+                return "ruled_table"
+            page = pdf.pages[0]
+            has_text = len(page.chars) > 0
+            has_vector_lines = len(page.lines) > 0 or len(page.rects) > 0
+            has_image_only = len(page.images) > 0 and not has_text and not has_vector_lines
+            return "scanned_page_per_employee" if has_image_only else "ruled_table"
 
     def extract_header_info(self, pdf_path: Path) -> HeaderInfo:
         with pdfplumber.open(pdf_path) as pdf:

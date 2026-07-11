@@ -4,15 +4,6 @@ interface ElapsedProgressProps {
   label: string;
 }
 
-/**
- * Section 11 requires "a real progress indicator (not a fake spinner)".
- * Since /api/process is a single long-running request with no
- * intermediate progress events (per Section 7's fixed endpoint contract —
- * no additional polling endpoint is added), this shows genuine elapsed
- * time instead of a fake percentage, so the user can see the app is
- * actively working rather than frozen — honest feedback rather than a
- * misleading progress bar.
- */
 export function ElapsedProgress({ label }: ElapsedProgressProps) {
   const [seconds, setSeconds] = useState(0);
 
@@ -23,15 +14,13 @@ export function ElapsedProgress({ label }: ElapsedProgressProps) {
 
   const minutes = Math.floor(seconds / 60);
   const displaySeconds = seconds % 60;
-  const timeLabel =
-    minutes > 0 ? `${minutes}m ${displaySeconds}s` : `${displaySeconds}s`;
+  const timeLabel = minutes > 0 ? `${minutes}m ${displaySeconds}s` : `${displaySeconds}s`;
 
   return (
-    <div className="flex items-center gap-3 text-sm text-accent-600 mt-4">
-      <span className="w-4 h-4 border-2 border-accent-500 border-t-transparent rounded-full animate-spin" />
-      <span>
-        {label} <span className="text-ink-400">({timeLabel} elapsed)</span>
-      </span>
+    <div className="flex items-center gap-2.5 text-sm bg-accent-50/60 border border-accent-100 rounded-lg px-3.5 py-3 mt-4">
+      <span className="w-3.5 h-3.5 border-2 border-accent-500 border-t-transparent rounded-full animate-spin shrink-0" />
+      <span className="text-accent-700 font-medium">{label}</span>
+      <span className="text-accent-400 text-xs ml-auto tabular-nums">{timeLabel}</span>
     </div>
   );
 }

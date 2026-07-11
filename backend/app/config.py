@@ -27,6 +27,14 @@ class Settings(BaseSettings):
 
     # CORS
     frontend_origin: str = "http://localhost:5173"
+    
+    # Vision API (optional, higher-accuracy path for scanned/handwritten
+    # PDFs — see services/vision_extraction_service.py). Used automatically
+    # for the scanned page-per-employee PDF format when a key is present;
+    # falls back to free Tesseract if not configured.
+    vision_provider: str = "openai"  # "openai" or "openrouter"
+    vision_api_key: str | None = None
+    vision_model: str = "gpt-4o"
 
 
 @lru_cache

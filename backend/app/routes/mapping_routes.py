@@ -3,6 +3,11 @@ Section 7: POST /api/mapping/detect.
 This endpoint only *proposes* a mapping — Section 4 requires the user to
 confirm (or manually correct) it in the UI before anything gets written.
 No Excel writes happen here.
+
+UPDATE: now dispatches between the ruled-table format (pdf_service.py) and
+the scanned page-per-employee format (pdf_page_template_service.py) based
+on PDFService.detect_format(), since header/period extraction differs
+completely between the two.
 """
 from fastapi import APIRouter, Depends, HTTPException, status
 
@@ -10,6 +15,7 @@ from app.auth.dependencies import get_current_username
 from app.config import Settings, get_settings
 from app.models.mapping_models import MappingDetectRequest, MappingDetectResponse
 from app.services.excel_mapping_service import ExcelMappingService
+from app.services.pdf_page_template_service import PageTemplatePDFService
 from app.services.pdf_service import PDFService
 from app.services.storage_service import StorageService
 from app.utils.date_utils import generate_sequential_dates
@@ -33,8 +39,11 @@ async def detect_mapping(
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
 
     pdf_service = PDFService()
+    pdf_format = pdf_service.detect_format(pdf_path)
+    extractor = PageTemplatePDFService() if pdf_format == "scanned_page_per_employee" else pdf_service
+
     try:
-        header_info = pdf_service.extract_header_info(pdf_path)
+        header_info = extractor.extract_header_info(pdf_path)
     except Exception as exc:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST, f"Could not read the PDF header/period: {exc}"
@@ -44,7 +53,7 @@ async def detect_mapping(
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
             "Could not determine the timesheet period from the PDF. "
-            "Check that the PDF contains a readable 'Timesheet Period' line.",
+            "Check that the PDF contains a readable period or title line.",
         )
 
     pdf_dates = generate_sequential_dates(header_info.period_start, header_info.period_end)

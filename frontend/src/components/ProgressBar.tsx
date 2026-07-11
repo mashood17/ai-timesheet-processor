@@ -3,27 +3,41 @@ interface ProgressBarProps {
   currentStepIndex: number;
 }
 
+function CheckIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path
+        d="M13.5 4.5L6 12L2.5 8.5"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 export function ProgressBar({ steps, currentStepIndex }: ProgressBarProps) {
   return (
-    <div className="flex items-center w-full mb-8">
+    <div className="flex items-start w-full mb-10">
       {steps.map((step, index) => {
         const isComplete = index < currentStepIndex;
         const isCurrent = index === currentStepIndex;
         return (
-          <div key={step} className="flex items-center flex-1 last:flex-none">
+          <div key={step} className="flex items-start flex-1 last:flex-none">
             <div className="flex flex-col items-center">
               <div
-                className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold
-                  ${isComplete ? "bg-accent-500 text-white" : ""}
-                  ${isCurrent ? "bg-accent-100 text-accent-700 border-2 border-accent-500" : ""}
-                  ${!isComplete && !isCurrent ? "bg-ink-100 text-ink-300" : ""}
+                className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold transition-colors duration-150
+                  ${isComplete ? "bg-ink-900 text-white" : ""}
+                  ${isCurrent ? "bg-white text-accent-600 border-2 border-accent-500 shadow-sm" : ""}
+                  ${!isComplete && !isCurrent ? "bg-white text-ink-300 border border-ink-200" : ""}
                 `}
               >
-                {isComplete ? "✓" : index + 1}
+                {isComplete ? <CheckIcon /> : index + 1}
               </div>
               <span
-                className={`mt-2 text-xs whitespace-nowrap ${
-                  isCurrent ? "text-ink-900 font-medium" : "text-ink-300"
+                className={`mt-2 text-xs whitespace-nowrap tracking-tight transition-colors duration-150 ${
+                  isCurrent ? "text-ink-900 font-medium" : isComplete ? "text-ink-500 font-medium" : "text-ink-300"
                 }`}
               >
                 {step}
@@ -31,7 +45,9 @@ export function ProgressBar({ steps, currentStepIndex }: ProgressBarProps) {
             </div>
             {index < steps.length - 1 && (
               <div
-                className={`flex-1 h-0.5 mx-2 ${isComplete ? "bg-accent-500" : "bg-ink-100"}`}
+                className={`flex-1 h-px mx-3 mt-3.5 transition-colors duration-150 ${
+                  isComplete ? "bg-ink-900" : "bg-ink-200"
+                }`}
               />
             )}
           </div>

@@ -64,6 +64,7 @@ export interface UnmatchedEntry {
   iqama_or_passport: string | null;
   employee_name: string | null;
   reason: string;
+  possible_match: string | null;
 }
 
 export interface DuplicateEntry {

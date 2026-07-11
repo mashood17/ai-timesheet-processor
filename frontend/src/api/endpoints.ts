@@ -88,3 +88,22 @@ export async function downloadExcel(sessionId: string): Promise<Blob> {
 export async function downloadReport(sessionId: string): Promise<Blob> {
   return requestBlob(`/api/download/report/${sessionId}`);
 }
+
+export async function acceptPossibleMatch(
+  sessionId: string,
+  unmatchedIqama: string,
+  acceptedIqama: string
+): Promise<{
+  results: EmployeeProcessResult[];
+  unmatched: UnmatchedEntry[];
+  duplicates: DuplicateEntry[];
+}> {
+  return request("/api/process/accept-match", {
+    method: "POST",
+    body: JSON.stringify({
+      session_id: sessionId,
+      unmatched_iqama_or_passport: unmatchedIqama,
+      accepted_iqama: acceptedIqama,
+    }),
+  });
+}

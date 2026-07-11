@@ -2,6 +2,10 @@ backend/venv/
 backend/storage/
 backend/.env
 backend/__pycache__/
+backend/hf_cache/
+backend/paddle_cache/
+backend/test_iqama.png
+backend/payload.json
 **/__pycache__/
 frontend/node_modules/
 frontend/dist/

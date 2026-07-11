@@ -3,12 +3,12 @@ import { useNavigate } from "react-router-dom";
 import { ApiError } from "@/api/client";
 import { detectMapping, processTimesheet, uploadExcel, uploadPdf } from "@/api/endpoints";
 import { useAuth } from "@/auth/AuthContext";
+import { ElapsedProgress } from "@/components/ElapsedProgress";
 import { MappingConfirmation } from "@/components/MappingConfirmation";
 import { ProgressBar } from "@/components/ProgressBar";
 import { SheetSelector } from "@/components/SheetSelector";
 import { UploadZone } from "@/components/UploadZone";
 import type { MappingDetectResponse, MappingInput } from "@/types";
-import { ElapsedProgress } from "@/components/ElapsedProgress";
 
 const STEPS = ["Upload files", "Confirm mapping", "Review", "Results"];
 
@@ -35,7 +35,7 @@ export function DashboardPage() {
   async function handleExcelSelected(file: File) {
     setError(null);
     setExcelFile(file);
-    setLoadingStep("Uploading Excel...");
+    setLoadingStep("Uploading Excel…");
     try {
       const result = await uploadExcel(file);
       setExcelFileId(result.file_id);
@@ -52,7 +52,7 @@ export function DashboardPage() {
   async function handlePdfSelected(file: File) {
     setError(null);
     setPdfFile(file);
-    setLoadingStep("Uploading PDF...");
+    setLoadingStep("Uploading PDF…");
     try {
       const result = await uploadPdf(file);
       setPdfFileId(result.file_id);
@@ -67,7 +67,7 @@ export function DashboardPage() {
   async function handleDetectMapping() {
     if (!excelFileId || !pdfFileId || !selectedSheet) return;
     setError(null);
-    setLoadingStep("Analyzing files and detecting mapping...");
+    setLoadingStep("Analyzing files and detecting mapping…");
     try {
       const result = await detectMapping(excelFileId, selectedSheet, pdfFileId);
       setMapping(result);
@@ -110,20 +110,30 @@ export function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-ink-50">
-      <header className="border-b border-ink-100 bg-white">
+      <header className="border-b border-ink-100 bg-white/80 backdrop-blur-sm sticky top-0 z-10">
         <div className="max-w-3xl mx-auto px-6 py-4 flex items-center justify-between">
-          <h1 className="text-sm font-semibold text-ink-900">Timesheet Processor</h1>
-          <button onClick={logout} className="text-xs text-ink-500 hover:text-ink-900">
+          <div className="flex items-center gap-2.5">
+            <div className="w-6 h-6 rounded-md bg-ink-900 flex items-center justify-center">
+              <span className="text-white text-[10px] font-semibold">TP</span>
+            </div>
+            <h1 className="text-sm font-semibold text-ink-900 tracking-tight">Timesheet Processor</h1>
+          </div>
+          <button
+            onClick={logout}
+            className="text-xs text-ink-400 hover:text-ink-900 font-medium transition-colors duration-150"
+          >
             Sign out
           </button>
         </div>
       </header>
 
-      <main className="max-w-3xl mx-auto px-6 py-10">
+      <main className="max-w-3xl mx-auto px-6 py-12">
         <ProgressBar steps={STEPS} currentStepIndex={currentStepIndex} />
 
-        <div className="bg-white rounded-2xl shadow-sm border border-ink-100 p-6">
-          <h2 className="text-sm font-semibold text-ink-900 mb-4">1. Upload files</h2>
+        <div className="bg-white rounded-2xl shadow-card border border-ink-100 p-7">
+          <h2 className="text-sm font-semibold text-ink-900 tracking-tight mb-5">
+            1. Upload files
+          </h2>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <UploadZone
@@ -151,9 +161,9 @@ export function DashboardPage() {
           )}
 
           {error && (
-            <p className="text-sm text-red-600 mt-4 bg-red-50 border border-red-100 rounded-lg p-3">
-              {error}
-            </p>
+            <div className="bg-red-50 border border-red-100 rounded-lg px-3.5 py-2.5 mt-5">
+              <p className="text-sm text-red-600 font-medium">{error}</p>
+            </div>
           )}
 
           {loadingStep && <ElapsedProgress label={loadingStep} />}
@@ -161,7 +171,7 @@ export function DashboardPage() {
           {canDetectMapping && !loadingStep && (
             <button
               onClick={handleDetectMapping}
-              className="w-full mt-4 rounded-lg bg-accent-500 text-white text-sm font-medium py-2.5 hover:bg-accent-600 transition-colors"
+              className="w-full mt-5 rounded-lg bg-accent-500 text-white text-sm font-medium py-2.5 transition-all duration-150 hover:bg-accent-600 active:scale-[0.99] shadow-sm"
             >
               Detect mapping
             </button>
