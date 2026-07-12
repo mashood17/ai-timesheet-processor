@@ -49,8 +49,10 @@ CONFIDENCE_MAP = {"high": 0.9, "medium": 0.6, "low": 0.3}
 # specific document's day count.
 DAY_CHUNK_SIZE = 5
 
+MAX_IMAGE_DIMENSION = 1000
 
 class VisionExtractionService:
+    MAX_IMAGE_DIMENSION = 1000 
     def __init__(self, settings: Settings):
         base_url = "https://openrouter.ai/api/v1" if settings.vision_provider == "openrouter" else None
         self.client = OpenAI(api_key=settings.vision_api_key, base_url=base_url)
@@ -153,7 +155,22 @@ class VisionExtractionService:
         return results
 
     # ---------- internal ----------
-
+    def _resize_for_api(self, image: Image.Image) -> Image.Image:
+        """
+        Downscales the image before sending, capping the longer side at
+        MAX_IMAGE_DIMENSION. Vision APIs tokenize images based on pixel
+        dimensions — a full-resolution 2500px-wide crop costs meaningfully
+        more per call than a 1000px version, with no real accuracy loss for
+        reading clear handwriting/print at this size.
+        """
+        width, height = image.size
+        longest_side = max(width, height)
+        if longest_side <= self.MAX_IMAGE_DIMENSION:
+            return image
+        scale = self.MAX_IMAGE_DIMENSION / longest_side
+        new_size = (int(width * scale), int(height * scale))
+        return image.resize(new_size, Image.LANCZOS)
+    
     def _image_to_data_url(self, image: Image.Image) -> str:
         buf = io.BytesIO()
         image.save(buf, format="PNG")
@@ -173,7 +190,8 @@ class VisionExtractionService:
         raise last_error
 
     def _call_vision(self, image: Image.Image, prompt: str) -> str:
-        data_url = self._image_to_data_url(image)
+        resized = self._resize_for_api(image)
+        data_url = self._image_to_data_url(resized)
         response = self.client.chat.completions.create(
             model=self.model,
             messages=[
@@ -186,7 +204,7 @@ class VisionExtractionService:
                 }
             ],
             temperature=0,
-            max_tokens=500,
+            max_tokens=150,
         )
         return response.choices[0].message.content or ""
 

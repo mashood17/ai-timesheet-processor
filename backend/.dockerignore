@@ -1,0 +1,11 @@
+venv/
+storage/
+hf_cache/
+paddle_cache/
+__pycache__/
+*.pyc
+.env
+test_iqama.png
+payload.json
+scripts/test_trocr.py
+scripts/test_paddleocr.py
