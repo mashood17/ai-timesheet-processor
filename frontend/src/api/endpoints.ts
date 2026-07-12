@@ -8,6 +8,9 @@ import type {
   MappingInput,
   PdfUploadResponse,
   ProcessResponse,
+  EmployeeProcessResult,
+  UnmatchedEntry,
+  DuplicateEntry,
 } from "@/types";
 
 export async function login(username: string, password: string): Promise<void> {
